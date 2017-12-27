@@ -22,6 +22,7 @@ public class OriginDataResolver {
 
             if (resultSet != null) {
                 while (resultSet.next()) {
+                    resultSet.getString(1);
                     //TODO("处理数据")
                 }
             }
