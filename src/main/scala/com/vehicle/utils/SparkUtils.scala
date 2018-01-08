@@ -12,6 +12,8 @@ object SparkUtils {
   val prop: Properties = new Properties()
   prop.load(SparkUtils.getClass.getClassLoader.getResourceAsStream("spark.properties"))
 
+  def getSparkContext(name: String): SparkContext = new SparkContext(config = getSparkConf(name))
+
   def getSparkConf(name: String): SparkConf = {
     val conf = new SparkConf
     import scala.collection.JavaConversions._
@@ -38,8 +40,6 @@ object SparkUtils {
     })
     jars.toArray
   }
-
-  def getSparkContext(name: String): SparkContext = new SparkContext(config = getSparkConf(name))
 
   def getSparkSession(name: String): SparkSession = SparkSession.builder().config(getSparkConf(name)).getOrCreate()
 }

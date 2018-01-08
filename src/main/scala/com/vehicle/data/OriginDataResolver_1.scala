@@ -3,10 +3,10 @@ package com.vehicle.data
 import java.io.{File, PrintWriter}
 import java.util
 
-import com.alibaba.fastjson.{JSON}
+import com.alibaba.fastjson.JSON
 import com.vehicle.feature.FeatureTransform
 
-import collection.JavaConversions._
+import scala.collection.JavaConversions._
 import scala.io.Source
 
 /**

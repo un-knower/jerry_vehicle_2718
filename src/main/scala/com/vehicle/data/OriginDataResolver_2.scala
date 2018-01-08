@@ -1,20 +1,25 @@
 package com.vehicle.data
 
-import com.vehicle.utils.SparkUtils
-import org.apache.spark.ml.Pipeline
-import org.apache.spark.ml.feature.{StringIndexer, VectorAssembler}
-import org.apache.spark.sql.{DataFrame, SparkSession}
+import java.lang.reflect.Type
+import java.util
 
-import scala.collection.mutable
+import com.alibaba.fastjson.{JSON, TypeReference}
+import com.vehicle.utils.SparkUtils
+import org.apache.spark.sql.types.{IntegerType, StringType, StructField, StructType}
+import org.apache.spark.sql.{DataFrame, Row, SparkSession}
+
+import scala.collection.JavaConversions._
+import scala.io.{BufferedSource, Source}
 
 /**
-  * 第三版数据处理
-  * 类型转化
+  * 第3版数据处理
+  * 测试集数据处理，使用DataFrame
   */
 object OriginDataResolver_2 {
   def main(args: Array[String]): Unit = {
-    val filePath: String = "hdfs://jerry:9000/vehicle/data/yancheng_train_20171226_0.csv"
-    val targetPath: String = "hdfs://jerry:9000/vehicle/data/yancheng_train_20171226_1.csv"
+    val originFilePath: String = "hdfs://jerry:9000/vehicle/data/train_1.csv"
+    val testFilePath: String = "hdfs://jerry:9000/vehicle/data/test.csv"
+    val testTargetFilePath: String = "hdfs://jerry:9000/vehicle/data/test"
     val csvFormat: String = "com.databricks.spark.csv"
 
     val sc: SparkSession = SparkUtils.getSparkSession(this.getClass.getSimpleName)
@@ -22,8 +27,16 @@ object OriginDataResolver_2 {
       .format(csvFormat)
       .option("header", value = true)
       .option("inferSchema", value = true)
-      .load(filePath)
+      .load(originFilePath).cache()
 
+    val originTestData: DataFrame = sc.read
+      .format(csvFormat)
+      .option("header", value = true)
+      .option("inferSchema", value = true)
+      .load(testFilePath)
+      .withColumnRenamed("predict_date", "sale_date")
+
+    val indexedTestData: DataFrame = transformClassId(sc, originTestData).cache()
     /*[sale_date,class_id,sale_quantity,brand_id,compartment,type_id
     ,level_id,department_id,TR,gearbox_type,displacement,if_charging
     ,price_level,price,driven_type_id,fuel_type_id,newenergy_type_id
@@ -31,43 +44,43 @@ object OriginDataResolver_2 {
     ,engine_torque,car_length,car_width,car_height,total_quality
     ,equipment_quality,rated_passenger,wheelbase,front_track,rear_track]*/
 
-    /*1.特征名称处理 原始名称 索引后名称 并集名称*/
-    /*原始名称*/
-    val originStr: String = "sale_date,class_id,sale_quantity,brand_id,compartment,type_id,level_id,department_id,TR,gearbox_type,displacement,if_charging,price_level,price,driven_type_id,fuel_type_id,newenergy_type_id,emission_standards_id,if_MPV_id,if_luxurious_id,power,cylinder_number,engine_torque,car_length,car_width,car_height,total_quality,equipment_quality,rated_passenger,wheelbase,front_track,rear_track"
-    /*索引后名称*/
-    val indexed: String = "sale_date,class_id,sale_quantity,brand_id_indexed,compartment,type_id,level_id,department_id,TR,gearbox_type_indexed,displacement,if_charging_indexed,price_level,price,driven_type_id,fuel_type_id,newenergy_type_id,emission_standards_id,if_MPV_id,if_luxurious_id,power,cylinder_number,engine_torque,car_length,car_width,car_height,total_quality,equipment_quality,rated_passenger,wheelbase,front_track,rear_track"
+    val joinOriginData = originData.drop("sale_date", "sale_quantity")
+    val testData: DataFrame = indexedTestData.join(joinOriginData, Seq("class_id"))
 
-    val indexedNames: Array[String] = indexed.split(",", -1)
-    val originNames: Array[String] = originStr.split(",", -1)
-    val dropNamesSet = new mutable.HashSet[String]()
+    val targetTestData: DataFrame = testData.coalesce(1).toDF
+    targetTestData.write
+      .mode("overwrite")
+      .option("header", value = true)
+      .csv(testTargetFilePath)
 
-    /*并集名称-待删除列名*/
-    val dropNames: Array[String] = dropNamesSet.toArray
-    originNames.foreach(dropNamesSet.add)
-    indexedNames.foreach(dropNamesSet.add)
+    sc.close()
+  }
 
-    /*2.将所有值转化为double类型(除类型特征)*/
-    originNames.foreach(col => {
-      if (indexed.contains(col)) {
-        originData(col).cast("double")
-      }
-    })
+  /**
+    * 转化class_id的映射
+    *
+    * @param df
+    * @return
+    */
+  def transformClassId(sc: SparkSession, df: DataFrame): DataFrame = {
+    val source: BufferedSource = Source.fromFile("C:\\Users\\jerry\\IdeaProjects\\vehicle_sales_prediction\\data\\origin\\map.json")
+    val json: String = source.bufferedReader().readLine()
+    val typeReference: Type = new TypeReference[util.Map[String, util.Map[String, Int]]] {}.getType
+    val map: util.Map[String, util.Map[String, Int]] = JSON.parseObject(json, typeReference)
+    val mapping: util.Map[String, Int] = map.get("1")
 
-    /*3.将类型特征转化为数值类型*/
-    val f1: StringIndexer = new StringIndexer().setInputCol("gearbox_type").setOutputCol("gearbox_type_indexed")
-    val f2: StringIndexer = new StringIndexer().setInputCol("if_charging").setOutputCol("if_charging_indexed")
-    val f3: StringIndexer = new StringIndexer().setInputCol("brand_id").setOutputCol("brand_id_indexed")
+    val list = for ((classId, index) <- mapping) yield Row(classId, index)
+    val list1 = new util.ArrayList[Row]()
+    list.foreach(row => list1.add(row))
 
-    /*4.合并特征*/
-    val assembler: VectorAssembler = new VectorAssembler().setInputCols(indexedNames).setOutputCol("features")
-
-    /*5.工作流水线*/
-    val pipeline: Pipeline = new Pipeline().setStages(Array(f1, f2, f3))
-
-    var df = pipeline.fit(originData).transform(originData)
-    df = df.withColumn("quantity", df("sale_quantity"))
-    df.show(3)
-
-    df.printSchema()
+    val struct = StructType(
+      List(
+        StructField("class_id", StringType),
+        StructField("class_id_index", IntegerType)
+      )
+    )
+    val df2: DataFrame = sc.createDataFrame(list1, struct)
+    val result: DataFrame = df.join(df2, Seq("class_id"))
+    result.withColumn("class_id", result("class_id_index")).drop("class_id_index")
   }
 }

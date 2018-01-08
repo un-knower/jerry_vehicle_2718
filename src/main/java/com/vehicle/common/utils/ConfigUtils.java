@@ -1,6 +1,5 @@
 package com.vehicle.common.utils;
 
-import com.vehicle.common.constants.JDBCConstants;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.math.NumberUtils;
 
