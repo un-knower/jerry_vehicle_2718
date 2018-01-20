@@ -1,0 +1,154 @@
+package vehicle
+
+
+import java.io.PrintWriter
+import java.util
+
+import org.apache.commons.lang3.math.NumberUtils
+
+import scala.io.Source
+
+/**
+  * Created with IntelliJ IDEA.
+  * Description: 
+  * User: zhangjinrui
+  * Date: 2018-01-20
+  * Time: 16:35
+  *
+  * @author : zhangjinrui
+  */
+object DataResolver {
+  val gearboxMapping: Map[String, String] = List("AMT" -> "0", "AT" -> "1", "DCT" -> "2", "CVT" -> "3", "MT" -> "4").toMap
+
+  val priceLevelMapping: Map[String, String] = List("5WL" -> "1", "5-8W" -> "2", "8-10W" -> "3", "10-15W" -> "4", "15-20W" -> "5"
+    , "20-25W" -> "6", "25-35W" -> "7", "35-50W" -> "8", "50-75W" -> "9").toMap
+
+  val priceMapping: Map[String, String] = List("5WL" -> "5", "5-8W" -> "6.5", "8-10W" -> "9", "10-15W" -> "12.5", "15-20W" -> "17.5"
+    , "20-25W" -> "22.5", "25-35W" -> "27.5", "35-50W" -> "37.5", "50-75W" -> "62.5").toMap
+
+  val LTMapping: Map[String, String] = List("L" -> "0", "T" -> "1").toMap
+
+  /**
+    * 转换变速箱编码
+    *
+    * @param gearbox
+    * @return
+    */
+  def transformGearbox(gearbox: String): String = {
+    gearboxMapping(gearbox)
+  }
+
+  /**
+    * 价格档位映射
+    *
+    * @param price
+    * @return
+    */
+  def transformPriceLevel(price: String): String = {
+    priceLevelMapping(price)
+  }
+
+  /**
+    * 获得价格映射
+    *
+    * @param price
+    * @return
+    */
+  def transformPrice(price: String): String = {
+    priceMapping(price)
+  }
+
+  def lTMapping(lt: String): String = {
+    LTMapping(lt)
+  }
+
+  /**
+    * 处理一行数据
+    *
+    * @param arr
+    * @return
+    */
+  def resolve(arr: Array[String]): String = {
+    val level_id: String = arr(6)
+    if (level_id.equals("-")) {
+      arr(6) = "0"
+    }
+
+    val TR: String = arr(8)
+    val trs: Array[String] = TR.split(";")
+    arr(8) = getOneHot(trs, 10)
+
+    val gearbox: String = arr(9)
+    val gearboxes: Array[String] = gearbox.split(";").map(ele => transformGearbox(ele))
+    arr(9) = getOneHot(gearboxes, 5)
+
+    val lt: String = arr(11)
+    arr(11) = lTMapping(lt)
+
+    val price_level: String = arr(12)
+    arr(12) = transformPriceLevel(price_level)
+
+    val price: String = arr(13)
+    if (price.equals("-")) {
+      arr(13) = transformPrice(price_level)
+    }
+
+    val fuel_type: String = arr(15)
+    if (fuel_type.equals("-")) {
+      arr(15) = "1"
+    }
+
+    val power: String = arr(20)
+    if (power.contains("/")) {
+      val a2: Array[String] = power.split("/")
+      arr(20) = ((NumberUtils.toDouble(a2(0)) + NumberUtils.toDouble(a2(1))) / 2).toString
+    }
+
+    val engine: String = arr(22)
+    if (engine.contains("/")) {
+      val a2: Array[String] = engine.split("/")
+      arr(22) = ((NumberUtils.toDouble(a2(0)) + NumberUtils.toDouble(a2(1))) / 2).toString
+    } else if (engine.equals("-")) {
+      arr(22) = "200"
+    }
+
+    val rate: String = arr(28)
+    if (rate.contains("-")) {
+      val a2: Array[String] = rate.split("-")
+      val res: String = ((NumberUtils.toDouble(a2(1)) + NumberUtils.toDouble(a2(0))) / 2).toString
+      arr(28) = res
+    }
+
+    val res: String = arr.mkString(",") + "\n"
+    res
+  }
+
+  def main(args: Array[String]): Unit = {
+    val originFilePath: String = "D:\\project\\mycluster\\data\\target_train.csv"
+    val it: Iterator[String] = Source.fromFile(originFilePath).getLines().map(str => resolve(str.split(",")))
+
+    val targetFilePath = "D:\\project\\mycluster\\data\\target_train_1.csv"
+    val writer: PrintWriter = new PrintWriter(targetFilePath)
+    it.foreach(str => writer.write(str))
+  }
+
+  /**
+    * one hot编码
+    *
+    * @param arr 哪几位是1
+    * @param num 一共多少位
+    * @return
+    */
+  def getOneHot(arr: Array[String], num: Int): String = {
+    val result: Array[Int] = new Array[Int](num)
+    util.Arrays.fill(result, 0)
+
+    for (elem <- arr) {
+      if (NumberUtils.isNumber(elem)) {
+        val index: Int = NumberUtils.toInt(elem)
+        result(index) = 1
+      }
+    }
+    result.mkString(",")
+  }
+}
